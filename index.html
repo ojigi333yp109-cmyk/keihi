@@ -556,6 +556,7 @@
                 <button class="btn btn-rcpt-dl" onclick="downloadReceipts()">領収書をダウンロード</button>
                 <button class="btn btn-pdf-all" onclick="exportPDFAll()">📄 まとめてPDF</button>
                 <button class="btn btn-pdf-each" onclick="exportPDFEach()">📄 1枚ずつPDF</button>
+                <button class="btn btn-del-report" onclick="resetAllData()">🗑 全データ削除</button>
             </div>
         </div>
 
@@ -699,13 +700,14 @@ function handleRowFile(rowId, input) {
     if (file.size > 5 * 1024 * 1024) { showToast('ファイルは 5MB 以下にしてください', 'error'); return; }
 
     const reader = new FileReader();
-    reader.onload = e => {
+    reader.onload = async e => {
         syncRows();
         const r = rows.find(x => x.id === rowId);
         if (!r) return;
-        r.receipt     = e.target.result;
+        const compressed = file.type === 'application/pdf' ? e.target.result : await compressImage(e.target.result);
+        r.receipt     = compressed;
         r.receiptName = file.name;
-        r.receiptMime = file.type;
+        r.receiptMime = file.type === 'application/pdf' ? file.type : 'image/jpeg';
         renderRows();
     };
     reader.readAsDataURL(file);
@@ -754,6 +756,13 @@ function handleSubmit(e) {
 /* ===== storage ===== */
 function loadAll() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch(_){ return []; } }
 function saveAll(d) { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); }
+
+function resetAllData() {
+    if (!confirm('すべての報告書を削除します。この操作は取り消せません。よろしいですか？')) return;
+    localStorage.removeItem(STORAGE_KEY);
+    renderReports();
+    showToast('全データを削除しました', 'success');
+}
 
 function deleteReport(id) {
     if (!confirm('この報告書を削除しますか？')) return;
@@ -1007,6 +1016,22 @@ function downloadReceipts() {
     showToast(`${targets.length}件の領収書をダウンロードします`, 'success');
 }
 
+/* ===== image compression ===== */
+function compressImage(dataURL, maxWidth = 1200, quality = 0.65) {
+    return new Promise(resolve => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let w = img.width, h = img.height;
+            if (w > maxWidth) { h = Math.round(h * maxWidth / w); w = maxWidth; }
+            canvas.width = w; canvas.height = h;
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+            resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.src = dataURL;
+    });
+}
+
 /* ===== utils ===== */
 function todayStr()  { return new Date().toISOString().slice(0, 10); }
 function genId()     { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
@@ -1082,10 +1107,10 @@ async function handleScan(input) {
         rows.push(newRow);
 
         const reader = new FileReader();
-        reader.onload = e => {
-            newRow.receipt     = e.target.result;
+        reader.onload = async e => {
+            newRow.receipt     = await compressImage(e.target.result);
             newRow.receiptName = file.name || 'receipt.jpg';
-            newRow.receiptMime = file.type;
+            newRow.receiptMime = 'image/jpeg';
             renderRows();
         };
         reader.readAsDataURL(file);
