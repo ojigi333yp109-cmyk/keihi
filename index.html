@@ -557,6 +557,7 @@
                 <button class="btn btn-rcpt-dl" onclick="downloadReceipts()">領収書をダウンロード</button>
                 <button class="btn btn-pdf-all" onclick="exportPDFAll()">📄 まとめてPDF</button>
                 <button class="btn btn-pdf-all" onclick="sharePDF()">📧 PDFをメールで送る</button>
+                <button class="btn btn-pdf-all" onclick="shareAll()">📧 CSV＋PDFをまとめて送る</button>
                 <button class="btn btn-pdf-each" onclick="exportPDFEach()">📄 1枚ずつPDF</button>
                 <button class="btn btn-del-report" onclick="resetAllData()">🗑 全データ削除</button>
             </div>
@@ -947,6 +948,58 @@ async function shareCSV() {
         catch (e) { if (e.name !== 'AbortError') showToast('共有に失敗しました', 'error'); }
     } else {
         showToast('このブラウザは共有非対応です。CSVエクスポートをお使いください', 'error');
+    }
+}
+
+async function shareAll() {
+    const reports = filteredReports();
+    if (reports.length === 0) { showToast('共有するデータがありません', 'error'); return; }
+    showToast('準備中...', 'success');
+
+    /* CSV */
+    const header = ['提出日', '氏名', '拠点', '社内クレカ', '日付', 'カテゴリ', '金額（円）', '使途・摘要', '領収書'];
+    const dataRows = [];
+    for (const r of reports) {
+        for (const item of r.items) {
+            dataRows.push([
+                r.submittedAt.slice(0, 10), r.name, r.branch || '',
+                r.cardUsed ? '使用' : '未使用',
+                item.date, item.category, item.amount, item.description,
+                item.receipt ? 'あり' : 'なし'
+            ]);
+        }
+    }
+    const csv = [header, ...dataRows]
+        .map(row => row.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','))
+        .join('\r\n');
+    const csvBlob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const csvFile = new File([csvBlob], `経費報告_${todayStr()}.csv`, { type: 'text/csv' });
+
+    /* PDF */
+    const targets = getReceiptTargets();
+    const files = [csvFile];
+    if (targets.length > 0) {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+        for (let i = 0; i < targets.length; i++) {
+            if (i > 0) doc.addPage();
+            const t = targets[i];
+            const img = await loadImage(t.dataURL);
+            const pw = 190, ph = 260;
+            const ratio = Math.min(pw / img.width, ph / img.height);
+            doc.setFontSize(9);
+            doc.text(t.label, 10, 10);
+            doc.addImage(t.dataURL, imgFormat(t.mime), 10, 14, img.width * ratio, img.height * ratio);
+        }
+        const pdfBlob = doc.output('blob');
+        files.push(new File([pdfBlob], `領収書_${todayStr()}.pdf`, { type: 'application/pdf' }));
+    }
+
+    if (navigator.share && navigator.canShare && navigator.canShare({ files })) {
+        try { await navigator.share({ files, title: '経費報告' }); }
+        catch (e) { if (e.name !== 'AbortError') showToast('共有に失敗しました', 'error'); }
+    } else {
+        showToast('このブラウザは共有非対応です', 'error');
     }
 }
 
