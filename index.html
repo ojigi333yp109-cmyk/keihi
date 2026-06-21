@@ -338,6 +338,10 @@
         .btn-rcpt-dl:hover { background: #fde68a; }
         .btn-del-report { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; }
         .btn-del-report:hover { background: #fecaca; }
+        .btn-pdf-all  { background: #eff6ff; color: #1d4ed8; border: 1px solid #93c5fd; }
+        .btn-pdf-all:hover  { background: #dbeafe; }
+        .btn-pdf-each { background: #f5f3ff; color: #6d28d9; border: 1px solid #c4b5fd; }
+        .btn-pdf-each:hover { background: #ede9fe; }
 
         /* Report cards (accordion) */
         .report-card {
@@ -550,6 +554,8 @@
             <div style="align-self: flex-end; display: flex; gap: 8px; flex-wrap: wrap;">
                 <button class="btn btn-export" onclick="exportCSV()">CSVエクスポート</button>
                 <button class="btn btn-rcpt-dl" onclick="downloadReceipts()">領収書をダウンロード</button>
+                <button class="btn btn-pdf-all" onclick="exportPDFAll()">📄 まとめてPDF</button>
+                <button class="btn btn-pdf-each" onclick="exportPDFEach()">📄 1枚ずつPDF</button>
             </div>
         </div>
 
@@ -901,6 +907,75 @@ function exportCSV() {
     showToast('CSVをエクスポートしました', 'success');
 }
 
+/* ===== PDF export ===== */
+function getReceiptTargets() {
+    const reports = filteredReports();
+    const targets = [];
+    for (const r of reports) {
+        for (const item of r.items) {
+            if (!item.receipt || item.receiptMime === 'application/pdf') continue;
+            targets.push({ dataURL: item.receipt, mime: item.receiptMime,
+                label: `${item.date} ${r.name} ${item.category} ¥${item.amount.toLocaleString('ja-JP')}` });
+        }
+    }
+    return targets;
+}
+
+async function exportPDFAll() {
+    const targets = getReceiptTargets();
+    if (targets.length === 0) { showToast('PDF化できる領収書画像がありません', 'error'); return; }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    for (let i = 0; i < targets.length; i++) {
+        if (i > 0) doc.addPage();
+        const t = targets[i];
+        const img = await loadImage(t.dataURL);
+        const pw = 190, ph = 260;
+        const ratio = Math.min(pw / img.width, ph / img.height);
+        const w = img.width * ratio, h = img.height * ratio;
+        doc.setFontSize(9);
+        doc.text(t.label, 10, 10);
+        doc.addImage(t.dataURL, imgFormat(t.mime), 10, 14, w, h);
+    }
+    doc.save(`領収書_${todayStr()}.pdf`);
+    showToast('PDFを作成しました', 'success');
+}
+
+async function exportPDFEach() {
+    const targets = getReceiptTargets();
+    if (targets.length === 0) { showToast('PDF化できる領収書画像がありません', 'error'); return; }
+    const { jsPDF } = window.jspdf;
+    for (let i = 0; i < targets.length; i++) {
+        const t = targets[i];
+        const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+        const img = await loadImage(t.dataURL);
+        const pw = 190, ph = 260;
+        const ratio = Math.min(pw / img.width, ph / img.height);
+        const w = img.width * ratio, h = img.height * ratio;
+        doc.setFontSize(9);
+        doc.text(t.label, 10, 10);
+        doc.addImage(t.dataURL, imgFormat(t.mime), 10, 14, w, h);
+        const safeName = t.label.replace(/[\\/:*?"<>| ]/g, '_');
+        setTimeout(() => doc.save(`${safeName}.pdf`), i * 600);
+    }
+    showToast(`${targets.length}件のPDFをダウンロードします`, 'success');
+}
+
+function loadImage(src) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = src;
+    });
+}
+
+function imgFormat(mime) {
+    if (mime === 'image/png')  return 'PNG';
+    if (mime === 'image/webp') return 'WEBP';
+    return 'JPEG';
+}
+
 /* ===== receipt bulk download ===== */
 function downloadReceipts() {
     const reports = filteredReports();
@@ -1085,5 +1160,6 @@ function showToast(msg, type = 'success') {
     t._tid = setTimeout(() => t.classList.remove('show'), 3200);
 }
 </script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </body>
 </html>
