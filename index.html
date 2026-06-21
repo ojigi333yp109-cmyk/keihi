@@ -962,7 +962,29 @@ async function handleScan(input) {
     btn.textContent = '⏳ 読み取り中...';
 
     try {
-        const { data: { text } } = await Tesseract.recognize(file, 'jpn+eng');
+        const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target.result.split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+
+        const res = await fetch(
+            'https://vision.googleapis.com/v1/images:annotate?key=AIzaSyBaCqSRPjDlo4aGTHUt0tJ2RIkGYPKR8hk',
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    requests: [{ image: { content: base64 }, features: [{ type: 'TEXT_DETECTION', maxResults: 1 }] }]
+                })
+            }
+        );
+        const data = await res.json();
+        const text = data.responses?.[0]?.fullTextAnnotation?.text ||
+                     data.responses?.[0]?.textAnnotations?.[0]?.description || '';
+
+        if (!text) { showToast('文字が読み取れませんでした', 'error'); return; }
+
         const extracted = parseReceipt(text);
 
         syncRows();
@@ -988,7 +1010,6 @@ async function handleScan(input) {
         };
         reader.readAsDataURL(file);
 
-        /* 結果ボックスに表示 */
         const parts = [];
         if (extracted.date)   parts.push(`日付：${extracted.date}`);
         if (extracted.amount) parts.push(`金額：¥${parseInt(extracted.amount).toLocaleString('ja-JP')}`);
@@ -1059,6 +1080,5 @@ function showToast(msg, type = 'success') {
     t._tid = setTimeout(() => t.classList.remove('show'), 3200);
 }
 </script>
-<script src="https://unpkg.com/tesseract.js@4/dist/tesseract.min.js"></script>
 </body>
 </html>
