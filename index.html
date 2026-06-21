@@ -980,6 +980,11 @@ async function handleScan(input) {
             }
         );
         const data = await res.json();
+
+        if (data.error) { showToast('APIエラー：' + data.error.message, 'error'); return; }
+        const apiErr = data.responses?.[0]?.error;
+        if (apiErr) { showToast('APIエラー：' + apiErr.message, 'error'); return; }
+
         const text = data.responses?.[0]?.fullTextAnnotation?.text ||
                      data.responses?.[0]?.textAnnotations?.[0]?.description || '';
 
